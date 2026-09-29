@@ -1,16 +1,43 @@
-BodyCamera 0.2.9
+# BodyCamera
 
-Based on the clean BodyCamera 0.2.9 ADS Stability Fix v4.
+BodyCamera is a visual camera mod for SPT 4.1.6 that changes the first-person camera behavior to create a more immersive body-mounted camera experience.
 
-ADS state is now observed from Tarkov's live
-Player.ProceduralWeaponAnimation.IsAiming state instead of maintaining a separate
-BodyCamera RMB/ADS toggle.
+## Features
 
-Tarkov remains responsible for ADS, optics, magnification, recoil and weapon state.
-BodyCamera only smooths the camera transition to/from the live Tarkov ADS camera.
+- Body-camera style first-person perspective
+- Configurable camera position and movement
+- Adjustable camera behavior while aiming
+- Support for different optics and sights
+- Smooth ADS camera transitions
+- Improved camera stability while moving and aiming
+- Configurable camera settings
 
-Build:
-dotnet build -c Release -p:SptRoot="D:\SPT"
+## SPT Compatibility
 
-Install:
-Copy-Item ".\bin\Release\netstandard2.1\BodyCamera.dll" "D:\SPT\BepInEx\plugins\BodyCamera\BodyCamera.dll" -Force
+- SPT 4.1.6
+
+## Installation
+
+1. Download the latest release.
+2. Extract the `BodyCamera` folder.
+3. Copy it to:
+
+`SPT\BepInEx\plugins\`
+
+The final path should be:
+
+`SPT\BepInEx\plugins\BodyCamera\BodyCamera.dll`
+
+## Configuration
+
+Configuration is generated automatically after the first launch.
+
+The configuration file can be found in the BepInEx configuration directory.
+
+## Credits
+
+BodyCamera is developed as a standalone SPT mod.
+
+## License
+
+See the `LICENSE` file for license information.
