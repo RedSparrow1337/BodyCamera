@@ -1,27 +1,16 @@
-# BodyCamera 0.2.8 — SPT 4.1.6
+BodyCamera 0.2.9
 
-Purpose:
-A bodycam-style first-person camera mod for SPT 4.1.6.
-The camera is positioned around the character's chest/body and features rotational inertia and camera shake for a more realistic body-mounted camera feel.
+Based on the clean BodyCamera 0.2.9 ADS Stability Fix v4.
+
+ADS state is now observed from Tarkov's live
+Player.ProceduralWeaponAnimation.IsAiming state instead of maintaining a separate
+BodyCamera RMB/ADS toggle.
+
+Tarkov remains responsible for ADS, optics, magnification, recoil and weapon state.
+BodyCamera only smooths the camera transition to/from the live Tarkov ADS camera.
+
+Build:
+dotnet build -c Release -p:SptRoot="D:\SPT"
 
 Install:
-Copy BodyCamera.dll to:
-BepInEx\plugins\BodyCamera\
-
-Default:
-The mod is OFF by default.
-Press F10 in raid to toggle it.
-
-Config:
-BepInEx\config\BodyCamera.cfg
-
-Features:
-- Chest/body-mounted camera position
-- Rotational camera inertia
-- Movement and sprint camera shake
-- Adjustable camera offsets
-- Adjustable camera shake intensity
-- Adjustable ADS camera distance
-
-Compatibility:
-SPT 4.1.6
+Copy-Item ".\bin\Release\netstandard2.1\BodyCamera.dll" "D:\SPT\BepInEx\plugins\BodyCamera\BodyCamera.dll" -Force

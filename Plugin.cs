@@ -12,7 +12,7 @@ using UnityEngine;
 
 namespace BodyCamera
 {
-    [BepInPlugin("BodyCamera", "BodyCamera", "0.2.8")]
+    [BepInPlugin("BodyCamera", "BodyCamera", "0.2.9")]
     public sealed class Plugin : BaseUnityPlugin
     {
         internal static ManualLogSource Log;
@@ -119,7 +119,7 @@ namespace BodyCamera
             new BodyCamLateUpdatePatch().Enable();
 
             Log.LogInfo(
-                "[BodyCamera] Loaded 0.2.8. Added movement camera shake with adjustable multiplier. RMB toggles standard Tarkov ADS with smooth camera inertia and smooth ADS exit. Press F10 to toggle. Default is OFF.");
+                "[BodyCamera] Loaded 0.2.9. ADS follows Tarkov ProceduralWeaponAnimation.IsAiming with smooth camera inertia/exit. Added movement camera shake with adjustable multiplier. Press F10 to toggle. Default is OFF.");
         }
 
         internal static bool ToggleRequested()
@@ -150,16 +150,17 @@ namespace BodyCamera
         internal float LookPitch;
         internal bool HasLookOffset;
 
-        // RMB is used as a TOGGLE in Tarkov. This state mirrors that toggle
-        // only for the BodyCam camera transition; Tarkov still owns the
-        // actual weapon/ADS state.
-        internal bool AdsTarget;
+        // Tarkov owns the real ADS state. BodyCamera does not maintain its own
+        // RMB/ADS toggle. We only remember the last real IsAiming state so we
+        // can detect entry/exit and run the camera transition. This mirrors
+        // the live Tarkov aiming state is the
+        // source of truth.
+        internal bool WasAiming;
+        internal bool HasAimingState;
         internal float AdsBlend;
-        internal bool WasSprinting;
-        internal bool SprintRmbGuard;
 
-        // AdsBlend is positional ADS-entry smoothing only. Rotation inertia
-        // is handled independently by InertialRotation/RotationInertia.
+        // AdsBlend is positional ADS-entry/exit smoothing only. Rotation
+        // inertia is handled independently by InertialRotation.
 
         // Tarkov's camera transform must survive between frames.
         // BodyCam overwrites CameraTransform in Postfix, so before Tarkov's
@@ -188,6 +189,7 @@ namespace BodyCamera
         // from it to the chest position. This prevents an optic switch made
         // after RMB-up from pulling the BodyCam forward.
         internal Vector3 AdsExitPosition;
+        internal Vector3 AdsExitNormalPosition;
         internal bool HasAdsExitPosition;
 
         // Movement camera shake runtime. This is procedural camera shake only;
@@ -363,10 +365,9 @@ namespace BodyCamera
                  * We capture that camera state first, then smoothly blend
                  * BodyCam <-> Tarkov camera.
                  *
-                 * RMB is treated as a TOGGLE (GetMouseButtonDown), matching
-                 * the user's Tarkov control setup. BodyCam does not alter
-                 * weapon ADS itself; Tarkov remains responsible for the real
-                 * aiming state, zoom, sight picture, recoil, etc.
+                 * BodyCamera does not handle RMB and does not create a second
+                 * ADS toggle. Tarkov remains responsible for the real aiming
+                 * state, zoom, sight picture, recoil, sight switching, etc.
                  */
                 Vector3 tarkovCameraPosition =
                     current.CameraTransform.position;
@@ -387,98 +388,66 @@ namespace BodyCamera
                     -(tarkovCameraRotation * Vector3.forward) *
                     Plugin.AdsCameraDistance.Value;
 
-                bool isSprinting =
-                    (Input.GetKey(KeyCode.LeftShift) ||
-                     Input.GetKey(KeyCode.RightShift)) &&
-                    (Mathf.Abs(Input.GetAxisRaw("Horizontal")) > 0.01f ||
-                     Mathf.Abs(Input.GetAxisRaw("Vertical")) > 0.01f);
+                /*
+                 * ADS STATE
+                 *
+                 * Do not mirror RMB here and do not guess when Tarkov has
+                 * accepted ADS. ProceduralWeaponAnimation
+                 * as its source of truth, and we do the same. Tarkov remains
+                 * responsible for RMB, IsAiming, sight selection, magnification,
+                 * recoil and all weapon-side ADS state.
+                 *
+                 * This removes the old duplicate ADS-state feedback loop
+                 * that could disagree with Tarkov during weapon swaps,
+                 * vaulting, painkillers and other animation transitions.
+                 */
+                var weaponAnimation = player.ProceduralWeaponAnimation;
+                bool actualAds =
+                    weaponAnimation != null &&
+                    weaponAnimation.IsAiming;
 
-                // Tarkov cancels ADS when the player starts sprinting.
-                // BodyCam previously kept its own RMB-toggle state as ADS=true,
-                // so sprinting could leave us blending against a camera state
-                // that Tarkov had already changed. That made the optic/sight
-                // problem appear to move between the primary and secondary sight.
-                // Mirror the sprint cancellation here, but do not otherwise
-                // change the user's toggle-based ADS behavior.
-                if (isSprinting && !current.WasSprinting && current.AdsTarget)
+                if (!current.HasAimingState)
                 {
-                    // Sprint makes Tarkov leave ADS immediately. Do NOT use
-                    // Tarkov's new sprint camera as the starting point for the
-                    // BodyCam exit. Freeze the exact BodyCam position that was
-                    // rendered on the previous frame, then blend back to the
-                    // chest position. This prevents the one-frame reset to the
-                    // vanilla FPS camera when W+Shift starts.
-                    Vector3 sprintExitPosition = current.HasCurrentPosition
-                        ? current.CurrentPosition
-                        : normalPosition;
+                    current.WasAiming = actualAds;
+                    current.HasAimingState = true;
 
-                    current.AdsTarget = false;
-                    current.AdsExitPosition = sprintExitPosition;
-                    current.HasAdsExitPosition = true;
-                    current.AdsBlend = 1f;
-                    current.CurrentPosition = sprintExitPosition;
-
-                    Plugin.Log.LogInfo(
-                        "[BodyCamera] Sprint started -> preserving BodyCam position and synchronizing ADS exit.");
+                    // Start from the current BodyCam position if the player
+                    // happens to be already aiming when BodyCam is enabled.
+                    current.AdsBlend = 0f;
+                    current.HasAdsExitPosition = false;
                 }
-
-                current.WasSprinting = isSprinting;
-
-                // Ctrl+RMB and Alt+RMB are Tarkov optic controls, not ADS.
-                // Unity still reports RMB as pressed for modifier+RMB, so a
-                // plain GetMouseButtonDown(1) would incorrectly toggle our
-                // BodyCam ADS state and fight Tarkov's sight-switch logic.
-                bool opticModifierHeld =
-                    Input.GetKey(KeyCode.LeftControl) ||
-                    Input.GetKey(KeyCode.RightControl) ||
-                    Input.GetKey(KeyCode.LeftAlt) ||
-                    Input.GetKey(KeyCode.RightAlt);
-
-                bool adsTogglePressed =
-                    Input.GetMouseButtonDown(1) && !opticModifierHeld;
-
-                // If RMB is pressed while sprinting, Tarkov may temporarily
-                // move/reset the FPS camera even though ADS cannot actually
-                // start. Keep the BodyCam on the position/rotation rendered
-                // immediately before the click instead of accepting that
-                // transient sprint/ADS camera state.
-                current.SprintRmbGuard = isSprinting && adsTogglePressed;
-
-                if (adsTogglePressed)
+                else if (actualAds != current.WasAiming)
                 {
-                    // Tarkov does not enter ADS while sprinting. Do not let
-                    // BodyCam's RMB toggle enter its own ADS state either.
-                    // Otherwise the live sprint camera becomes the ADS target
-                    // and the BodyCam snaps away from the chest position.
-                    if (isSprinting)
+                    if (actualAds)
                     {
-                        current.AdsTarget = false;
-                        current.HasAdsExitPosition = false;
+                        // Tarkov has actually entered ADS. Start the smooth
+                        // transition from the current BodyCam position.
                         current.AdsBlend = 0f;
+                        current.HasAdsExitPosition = false;
+
+                        Plugin.Log.LogInfo(
+                            "[BodyCamera] Tarkov ADS entered -> starting BodyCam ADS transition.");
                     }
                     else
                     {
-                        bool wasAds = current.AdsTarget;
-                        current.AdsTarget = !current.AdsTarget;
+                        // Tarkov has actually left ADS. Freeze the exact
+                        // BodyCam frame rendered immediately before the exit.
+                        // The exit offset is then carried with the player's
+                        // current normal BodyCam position, preventing the
+                        // backward-then-catch-up effect while walking.
+                        current.AdsExitPosition = current.HasCurrentPosition
+                            ? current.CurrentPosition
+                            : normalPosition;
 
-                    if (!wasAds && current.AdsTarget)
-                    {
-                        // Entering ADS: start the smooth transition from the
-                        // current BodyCam position. AdsBlend controls ADS entry.
-                        current.AdsBlend = 0f;
-                        current.HasAdsExitPosition = false;
+                        current.AdsExitNormalPosition = normalPosition;
+                        current.HasAdsExitPosition = true;
+                        current.AdsBlend = 1f;
+
+                        Plugin.Log.LogInfo(
+                            "[BodyCamera] Tarkov ADS exited -> starting BodyCam ADS exit transition.");
                     }
-                        else if (wasAds && !current.AdsTarget)
-                        {
-                            // Leaving ADS is now a smooth positional transition.
-                            // Freeze the last BodyCam ADS position and blend it back
-                            // to the chest position. This also prevents a simultaneous
-                            // optic/reticle change from snapping the camera forward.
-                            current.AdsExitPosition = current.CurrentPosition;
-                            current.HasAdsExitPosition = true;
-                            current.AdsBlend = 1f;
-                        }
-                    }
+
+                    current.WasAiming = actualAds;
                 }
 
                 // IMPORTANT:
@@ -492,7 +461,7 @@ namespace BodyCamera
                 // fully in ADS, the live Tarkov camera is used directly so
                 // changing optic or magnification stays synchronized.
 
-                if (current.AdsTarget)
+                if (actualAds)
                 {
                     float adsBlendStep =
                         1f - Mathf.Exp(
@@ -529,16 +498,7 @@ namespace BodyCamera
 
                 Vector3 targetPosition;
 
-                if (current.SprintRmbGuard)
-                {
-                    // RMB during an already-active sprint is not an ADS
-                    // transition. Preserve the BodyCam frame from before the
-                    // click so Tarkov cannot expose its transient camera reset.
-                    targetPosition = current.HasCurrentPosition
-                        ? current.CurrentPosition
-                        : normalPosition;
-                }
-                else if (current.AdsTarget)
+                if (actualAds)
                 {
                     // ADS entry keeps the smooth transition. After the blend
                     // reaches 1, Tarkov's live camera becomes the exact target,
@@ -562,12 +522,21 @@ namespace BodyCamera
                 }
                 else if (current.HasAdsExitPosition)
                 {
-                    // During ADS exit, use the frozen ADS position as the start
-                    // point. The live Tarkov camera is deliberately ignored here.
+                    // During ADS exit, preserve the BodyCam offset relative to
+                    // the player's current chest position. This is important
+                    // while walking: using a completely frozen world-space ADS
+                    // position makes the camera appear to move backward and then
+                    // catch up as normalPosition continues moving with the player.
+                    Vector3 exitOffset =
+                        current.AdsExitPosition - current.AdsExitNormalPosition;
+
+                    Vector3 movingExitPosition =
+                        normalPosition + exitOffset;
+
                     targetPosition =
                         Vector3.Lerp(
                             normalPosition,
-                            current.AdsExitPosition,
+                            movingExitPosition,
                             current.AdsBlend);
                 }
                 else
@@ -596,9 +565,7 @@ namespace BodyCamera
                  * retaining normal mouse look.
                  */
                 Quaternion gameRotation =
-                    current.SprintRmbGuard && current.HasInertialRotation
-                        ? current.InertialRotation
-                        : tarkovCameraRotation;
+                    tarkovCameraRotation;
 
                 float bodyYaw =
                     GetHorizontalYaw(bodyForward);
@@ -745,7 +712,7 @@ namespace BodyCamera
                         $"Anchor={current.AnchorName} " +
                         $"Camera={current.CameraTransform.name} " +
                         $"Normal={normalPosition} " +
-                        $"Target={current.AdsTarget} " +
+                        $"TarkovADS={current.WasAiming} " +
                         $"Current={current.CurrentPosition}");
                 }
             }
@@ -756,15 +723,18 @@ namespace BodyCamera
             }
         }
 
+        // Tarkov ADS source of truth. ProceduralWeaponAnimation
+        // exposes the live IsAiming state, so no
+        // reflection, RMB grace period or duplicate ADS toggle is required.
+
         private static void ResetRuntimeState(BodyCamState state)
         {
             state.HasCurrentPosition = false;
             state.HasInertialRotation = false;
             state.HasLookOffset = false;
-            state.AdsTarget = false;
+            state.WasAiming = false;
+            state.HasAimingState = false;
             state.AdsBlend = 0f;
-            state.WasSprinting = false;
-            state.SprintRmbGuard = false;
             state.LastTarkovPosition = Vector3.zero;
             state.LastTarkovRotation = Quaternion.identity;
             state.HasLastTarkovState = false;
@@ -776,6 +746,7 @@ namespace BodyCamera
             state.AdsCandidateTimer = 0f;
             state.HasAdsCandidate = false;
             state.AdsExitPosition = Vector3.zero;
+            state.AdsExitNormalPosition = Vector3.zero;
             state.HasAdsExitPosition = false;
             state.LastPlayerPosition = Vector3.zero;
             state.HasLastPlayerPosition = false;
