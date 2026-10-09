@@ -12,7 +12,7 @@ using UnityEngine;
 
 namespace BodyCamera
 {
-    [BepInPlugin("BodyCamera", "BodyCamera", "0.2.9")]
+    [BepInPlugin("BodyCamera", "BodyCamera", "0.3.0")]
     public sealed class Plugin : BaseUnityPlugin
     {
         internal static ManualLogSource Log;
@@ -29,6 +29,9 @@ namespace BodyCamera
         internal static ConfigEntry<float> AdsCameraDistance;
         internal static ConfigEntry<float> AdsExitInertia;
         internal static ConfigEntry<float> CameraShakeMultiplier;
+        internal static ConfigEntry<float> ShotKickStrength;
+        internal static ConfigEntry<float> ShotKickPitchStrength;
+        internal static ConfigEntry<float> ShotKickYawStrength;
 
         private void Awake()
         {
@@ -116,10 +119,35 @@ namespace BodyCamera
                     "Strength of movement camera shake. 0 = off, 1 = normal, higher = stronger.",
                     new AcceptableValueRange<float>(0.00f, 5.00f)));
 
+            ShotKickPitchStrength = Config.Bind(
+                "BodyCam",
+                "Shot Kick Pitch Strength",
+                1.20f,
+                new ConfigDescription(
+                    "Vertical camera kick from shooting.",
+                    new AcceptableValueRange<float>(0.00f, 5.00f)));
+
+            ShotKickYawStrength = Config.Bind(
+                "BodyCam",
+                "Shot Kick Yaw Strength",
+                0.25f,
+                new ConfigDescription(
+                    "Horizontal camera kick from shooting.",
+                    new AcceptableValueRange<float>(0.00f, 5.00f)));
+
+            ShotKickStrength = Config.Bind(
+                "BodyCam",
+                "Shot Kick Strength",
+                1.00f,
+                new ConfigDescription(
+                    "Strength of camera kick when firing. 0 = off, 1 = normal, higher = stronger.",
+                    new AcceptableValueRange<float>(0.00f, 5.00f)));
+
             new BodyCamLateUpdatePatch().Enable();
+            new BodyCamShotPatch().Enable();
 
             Log.LogInfo(
-                "[BodyCamera] Loaded 0.2.9. ADS follows Tarkov ProceduralWeaponAnimation.IsAiming with smooth camera inertia/exit. Added movement camera shake with adjustable multiplier. Press F10 to toggle. Default is OFF.");
+                "[BodyCamera] Loaded 0.3.0. ADS follows Tarkov ProceduralWeaponAnimation.IsAiming with smooth camera inertia/exit. Added adjustable camera-only shot kick with separate vertical and horizontal strength. Shot kick recovery is smoothed. Press F10 to toggle. Default is OFF.");
         }
 
         internal static bool ToggleRequested()
@@ -148,6 +176,10 @@ namespace BodyCamera
         // around a camera whose rotation is independent of the player.
         internal float LookYawRelativeToBody;
         internal float LookPitch;
+
+        public float ShotKickPitch;
+        public float ShotKickYaw;
+
         internal bool HasLookOffset;
 
         // Tarkov owns the real ADS state. BodyCamera does not maintain its own
@@ -204,6 +236,27 @@ namespace BodyCamera
     {
         private static readonly Dictionary<int, BodyCamState> States =
             new Dictionary<int, BodyCamState>();
+
+        internal static void ApplyShotKick()
+        {
+            foreach (var pair in States)
+            {
+                var state = pair.Value;
+
+                if (state == null || !state.Active)
+                    continue;
+
+                state.ShotKickPitch +=
+                    Plugin.ShotKickPitchStrength.Value *
+                    Plugin.ShotKickStrength.Value;
+
+                state.ShotKickYaw +=
+                    UnityEngine.Random.Range(
+                        -Plugin.ShotKickYawStrength.Value,
+                        Plugin.ShotKickYawStrength.Value)
+                    * Plugin.ShotKickStrength.Value;
+            }
+        }
 
         private static readonly Type PlayerBodyType =
             Type.GetType("EFT.PlayerBody, Assembly-CSharp");
@@ -661,6 +714,24 @@ namespace BodyCamera
                     out shakePitch,
                     out shakeYaw);
 
+                shakePitch += current.ShotKickPitch;
+                shakeYaw += current.ShotKickYaw;
+
+                float shotKickDecay =
+                    1f - Mathf.Exp(-8f * Time.unscaledDeltaTime);
+
+                current.ShotKickPitch =
+                    Mathf.Lerp(
+                        current.ShotKickPitch,
+                        0f,
+                        shotKickDecay);
+
+                current.ShotKickYaw =
+                    Mathf.Lerp(
+                        current.ShotKickYaw,
+                        0f,
+                        shotKickDecay);
+
                 Quaternion shakeRotation =
                     Quaternion.Euler(
                         shakePitch,
@@ -756,6 +827,8 @@ namespace BodyCamera
             state.InertialRotation = Quaternion.identity;
             state.LookYawRelativeToBody = 0f;
             state.LookPitch = 0f;
+            state.ShotKickPitch = 0f;
+            state.ShotKickYaw = 0f;
             state.LogTimer = 0f;
         }
 
@@ -882,7 +955,7 @@ namespace BodyCamera
 
             return state;
         }
-
+       
         private static bool Resolve(
             PlayerCameraController controller,
             BodyCamState state,
@@ -1226,6 +1299,25 @@ namespace BodyCamera
             return string.Join(
                 "/",
                 names);
+        }
+    }
+    internal sealed class BodyCamShotPatch : ModulePatch
+    {
+        protected override MethodBase GetTargetMethod()
+        {
+            var type = typeof(EFT.Player.FirearmController);
+
+            return type.GetMethod(
+                "InitiateShot",
+                BindingFlags.Instance |
+                BindingFlags.Public |
+                BindingFlags.NonPublic);
+        }
+
+        [PatchPostfix]
+        private static void Postfix(EFT.Player.FirearmController __instance)
+        {
+            BodyCamLateUpdatePatch.ApplyShotKick();
         }
     }
 }
