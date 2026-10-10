@@ -1317,6 +1317,11 @@ namespace BodyCamera
         [PatchPostfix]
         private static void Postfix(EFT.Player.FirearmController __instance)
         {
+            var mainPlayer = Singleton<GameWorld>.Instance?.MainPlayer;
+
+            if (mainPlayer == null || mainPlayer.HandsController != __instance)
+                return;
+
             BodyCamLateUpdatePatch.ApplyShotKick();
         }
     }
