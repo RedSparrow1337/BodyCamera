@@ -9,6 +9,17 @@
     <SptRoot Condition="'$(SptRoot)' == ''">D:\SPT</SptRoot>
   </PropertyGroup>
   <ItemGroup>
+    <EmbeddedResource Include="beep.wav" />
+    <EmbeddedResource Include="rec.wav" />
+    <EmbeddedResource Include="adjust1.wav" />
+    <EmbeddedResource Include="adjust2.wav" />
+    <EmbeddedResource Include="adjust3.wav" />
+    <EmbeddedResource Include="adjust4.wav" />
+    <EmbeddedResource Include="vcr_font.png" />
+    <EmbeddedResource Include="LensDirt.png" />
+    <EmbeddedResource Include="menu_icons.png" />
+  </ItemGroup>
+  <ItemGroup>
     <Reference Include="BepInEx">
       <HintPath>$(SptRoot)\BepInEx\core\BepInEx.dll</HintPath>
       <Private>false</Private>
@@ -25,8 +36,32 @@
       <HintPath>$(SptRoot)\EscapeFromTarkov_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="UnityEngine.AudioModule">
+      <HintPath>$(SptRoot)\EscapeFromTarkov_Data\Managed\UnityEngine.AudioModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.PhysicsModule">
+      <HintPath>$(SptRoot)\EscapeFromTarkov_Data\Managed\UnityEngine.PhysicsModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="UnityEngine.InputLegacyModule">
       <HintPath>$(SptRoot)\EscapeFromTarkov_Data\Managed\UnityEngine.InputLegacyModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.IMGUIModule">
+      <HintPath>$(SptRoot)\EscapeFromTarkov_Data\Managed\UnityEngine.IMGUIModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.ImageConversionModule">
+      <HintPath>$(SptRoot)\EscapeFromTarkov_Data\Managed\UnityEngine.ImageConversionModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.ScreenCaptureModule">
+      <HintPath>$(SptRoot)\EscapeFromTarkov_Data\Managed\UnityEngine.ScreenCaptureModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.TextRenderingModule">
+      <HintPath>$(SptRoot)\EscapeFromTarkov_Data\Managed\UnityEngine.TextRenderingModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="spt-reflection">
